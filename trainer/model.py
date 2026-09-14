@@ -22,10 +22,10 @@ class LocalGlobalNet(nn.Module):
         rows: int = 20,
         columns: int = 20,
         local_input_dimension: int = 45,
-        local_hidden_dimension: int = 16, # originally 4
-        local_output_dimension: int = 4, # originally 1
+        local_hidden_dimension: int = 8, # originally 4
+        local_output_dimension: int = 2, # originally 1
         global_context_dimension: int = 32,
-        global_hidden_dimension: int = 128, # originally 32
+        global_hidden_dimension: int = 64, # originally 32
         global_output_dimension: int = 1
     ):
         super().__init__()
