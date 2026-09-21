@@ -162,7 +162,7 @@ class AnnealedExtremeMSELoss(nn.Module):
     def __init__(
         self,
         rho_start=1.0,
-        rho_final=0.01,
+        rho_final=0.05,
         warmup_epochs=10,
         anneal_epochs=80,
     ):
@@ -247,6 +247,150 @@ class AnnealedExtremeMSELoss(nn.Module):
 
         # MSE only on the extreme samples
         return loss_flat[indices].mean()
+
+
+class AnnealedSymmetricTailMSELoss(nn.Module):
+    def __init__(
+        self,
+        rho_start=1.0,
+        rho_final=0.05,
+        warmup_epochs=10,
+        anneal_epochs=80,
+    ):
+        super().__init__()
+
+        if not (0.0 < rho_final <= rho_start <= 1.0):
+            raise ValueError(
+                "Require 0 < rho_final <= rho_start <= 1."
+            )
+
+        self.rho_start = rho_start
+        self.rho_final = rho_final
+
+        self.warmup_epochs = warmup_epochs
+        self.anneal_epochs = anneal_epochs
+
+        self.current_rho = rho_start
+        self.current_epoch = 0
+
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
+
+        if epoch <= self.warmup_epochs:
+            self.current_rho = self.rho_start
+            return
+
+        progress = min(
+            1.0,
+            (epoch - self.warmup_epochs)
+            / max(1, self.anneal_epochs),
+        )
+
+        log_start = math.log(self.rho_start)
+        log_final = math.log(self.rho_final)
+
+        self.current_rho = math.exp(
+            log_start
+            + progress * (log_final - log_start)
+        )
+
+    @staticmethod
+    def tail_key(per_sample_loss, y_true):
+        """y + |error|, per sample. Works for [B] or [B, T] targets."""
+        y = y_true.reshape(per_sample_loss.shape[0], -1).mean(dim=1)
+        return (y + per_sample_loss.detach().clamp_min(0.0).sqrt()).flatten()
+
+    def forward(self, per_sample_loss, y_true):
+        """
+        Args:
+            per_sample_loss: Tensor [B], squared errors.
+            y_true:          Tensor [B] (or [B, T]), targets.
+        """
+        B = per_sample_loss.numel()
+
+        if B == 0:
+            return per_sample_loss.sum() * 0.0
+
+        if self.current_rho >= 1.0:
+            return per_sample_loss.mean()
+
+        k = max(1, math.ceil(self.current_rho * B))
+
+        _, indices = torch.topk(
+            self.tail_key(per_sample_loss, y_true),
+            k=k,
+            largest=True,
+        )
+
+        return per_sample_loss.flatten()[indices].mean()
+
+class AnnealedTopPredTopTrueMSELoss(nn.Module):
+    def __init__(
+        self,
+        rho_start=1.0,
+        rho_final=0.05,
+        warmup_epochs=10,
+        anneal_epochs=80,
+        pred_weight=0.5,
+    ):
+        super().__init__()
+
+        if not (0.0 < rho_final <= rho_start <= 1.0):
+            raise ValueError("Require 0 < rho_final <= rho_start <= 1.")
+        if not (0.0 <= pred_weight <= 1.0):
+            raise ValueError("Require 0 <= pred_weight <= 1.")
+
+        self.rho_start = rho_start
+        self.rho_final = rho_final
+        self.warmup_epochs = warmup_epochs
+        self.anneal_epochs = anneal_epochs
+        self.pred_weight = pred_weight
+        self.needs_prediction = True
+
+
+        self.current_rho = rho_start
+        self.current_epoch = 0
+
+    def set_epoch(self, epoch):
+        self.current_epoch = epoch
+
+        if epoch <= self.warmup_epochs:
+            self.current_rho = self.rho_start
+            return
+
+        progress = min(1.0, (epoch - self.warmup_epochs) / max(1, self.anneal_epochs))
+        log_start = math.log(self.rho_start)
+        log_final = math.log(self.rho_final)
+        self.current_rho = math.exp(log_start + progress * (log_final - log_start))
+
+    def forward(self, per_sample_loss, y_true, prediction):
+        """
+        Args:
+            per_sample_loss: Tensor [B], squared errors.
+            y_true:          Tensor [B] (or [B, T]), targets.
+            prediction:      Tensor [B] (or [B, T]), model outputs.
+        """
+        B = per_sample_loss.numel()
+
+        if B == 0:
+            return per_sample_loss.sum() * 0.0
+
+        if self.current_rho >= 1.0:
+            return per_sample_loss.mean()
+
+        k = max(1, math.ceil(self.current_rho * B))
+        losses = per_sample_loss.flatten()
+
+        y = y_true.reshape(B, -1).mean(dim=1)
+        p = prediction.detach().reshape(B, -1).mean(dim=1)
+
+        top_true = torch.topk(y, k=k, largest=True).indices
+        top_pred = torch.topk(p, k=k, largest=True).indices
+
+        return (
+            self.pred_weight * losses[top_pred].mean()
+            + (1.0 - self.pred_weight) * losses[top_true].mean()
+        )
 
 class AnnealedRandomMSELoss(nn.Module):
     """
