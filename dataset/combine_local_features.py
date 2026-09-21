@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 
@@ -26,7 +27,9 @@ LOCAL_FEATURES = [
 
 
 def main():
-    root = Path("data/best_dataset_known_and_unknown_complete_parts")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", required=True, help="parts directory")
+    root = Path(parser.parse_args().data)
 
     with open(root / "meta.json", "r") as f:
         meta = json.load(f)
