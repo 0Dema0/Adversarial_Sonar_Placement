@@ -104,11 +104,11 @@ These are loaded from the bounds directory and used to build and tighten the MIL
 
 ## Joint vs robust formulation
 
-### Joint formulation
+### Joint formulation (PREFERRED MODE)
 
 `MILP_unknown_as_decision_var.py` models placement decisions and unknown-sonar decisions jointly. This is the more explicit formulation when the unknown-sonar pattern itself is part of the optimization problem.
 
-### Robust formulation
+### Robust formulation (never used, it works iteratively, since the function to minimize is f(x,y), it minimizes over x first, then over y, then over x again, and so on)
 
 `MILP_robust.py` is designed for robust optimization settings, where the solver accounts for uncertainty in a more adversarial or worst-case manner.
 
