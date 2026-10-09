@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from environment.cost import CostMap
 from environment.features import Features
+from environment.perception import SonarKnowledge, update_sonar_visibility
+from environment.planner import IncrementalPlanner
+from environment.state import MapState
 from environment.utils import detection_probability
 import dataset.static_cache as sc
 from trainer.data_builder import PartsDataset, sanitize_cost
@@ -316,6 +319,48 @@ def _extract_global_context(
     )
 
 
+def _compute_output_for_split(
+    static,
+    cost_map: CostMap,
+    known_indices: list[int],
+    unknown_indices: list[int],
+    start_index: int,
+    goal_index: int,
+) -> float:
+    sonar_knowledge = SonarKnowledge(
+        np.asarray(known_indices, dtype=np.int64),
+        np.asarray(unknown_indices, dtype=np.int64),
+    )
+    state = MapState(
+        obstacle_map=static.obstacle_map,
+        sonar_knowledge=sonar_knowledge,
+        agent_index=start_index,
+        goal_index=goal_index,
+    )
+    planner = IncrementalPlanner(cost_map)
+    score = 0.0
+    sonar_array = np.asarray(cost_map.sonar_indices, dtype=np.int32)
+
+    while state.agent_index != state.goal_index:
+        update_sonar_visibility(
+            raw_map=static.raw_map,
+            agent_index=state.agent_index,
+            sonar_knowledge=state.sonar,
+            discover_distance=3,
+            sonar_indices=static.raw_map.index_coordinates[sonar_array],
+        )
+        path, _, _ = planner.plan(state)
+        if not path:
+            return float("inf")
+        if len(path) < 2:
+            break
+        next_index = path[1]
+        score += cost_map.static_cost_map[next_index]
+        state.agent_index = next_index
+
+    return float(score)
+
+
 def validate_positioning_with_sonars(
     sonar_indices: list[int],
     unknown_indices: list[int],
@@ -353,7 +398,7 @@ def validate_positioning_with_sonars(
         start_as_unknown_number=len(unknown_indices),
         single_value=True,
         start_index=start_index,
-        best_sonar_split=True,
+        best_sonar_split=False,
     )
 
     features.known_sonar_mask.fill(False)
@@ -364,6 +409,17 @@ def validate_positioning_with_sonars(
     known_indices = [i for i in range(len(sonar_indices)) if i not in unknown_indices]
     features.known_sonar_mask[sonar_array[known_indices]] = True
     features.unknown_sonar_mask[sonar_array[unknown_indices]] = True
+
+    features.outputs.fill(0)
+    features.outputs[start_index] = _compute_output_for_split(
+        static=static,
+        cost_map=cost_map,
+        known_indices=known_indices,
+        unknown_indices=unknown_indices,
+        start_index=start_index,
+        goal_index=goal_index,
+    )
+    features.reachable_mask = np.isfinite(features.outputs)
 
     features_dict = features.to_dict()
 
@@ -471,24 +527,19 @@ if __name__ == "__main__":
         replace=False
     ).tolist()
 
-    sonar_indices = [235, 236, 238, 259, 314, 349, 373, 391] # EXACT
-    #sonar_indices = [236, 238, 256, 257, 333, 368, 369, 392]
-    #sonar_indices = [65, 195, 258, 259, 275, 333, 369, 372]
-    #sonar_indices = [85, 195, 256, 258, 259, 333, 369, 392]
-    #sonar_indices = [216, 256, 258, 259, 314, 349, 373, 391]
-    sonar_indices = [218, 235, 236, 259, 314, 349, 373, 391] # EXTREME MODEL 10%
-    #sonar_indices = [178, 215, 256, 259, 295, 349, 373, 389] # RANDOM MODEL WITH BEST DATASET 2%
-    unknown_indices = []
+    #sonar_indices = [235, 236, 238, 259, 314, 349, 373, 391] # EXACT
+    #sonar_indices = [218, 235, 236, 259, 314, 349, 373, 391] # EXTREME MODEL 10% BEST!!!
+    #unknown_indices = []
 
-    #sonar_indices = [235, 256, 258, 259, 312, 369, 371, 373]
-    #unknown_indices = [7] # sonar indices with base zero
+    sonar_indices = [198, 216, 256, 259, 295, 349, 368, 373] #iter 5 THE BEST!!!!!
+    unknown_indices = [3] # sonar indices with base zero
 
     result = validate_positioning_with_sonars(
         sonar_indices=sonar_indices,
         unknown_indices=unknown_indices,
         start_index=0,
-        model="best_partial_model_BESTDATASET_1UNKNOWN_extreme.pt",
-        #model="best_model_BESTDATASET_ALLKNOWN_extreme.pt",
+        model="best_model_1unknown_iteration.pt",
+        #model="best_model_0unknown_extreme.pt",
     )
 
     print(f"Map size: {result['raw_map'].total_cells}")
