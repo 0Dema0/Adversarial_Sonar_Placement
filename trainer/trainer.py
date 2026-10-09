@@ -10,10 +10,12 @@ class Trainer:
         optimizer=None,
         loss=None,
         device=None,
+        batch_log_interval: int = 100,
     ):
         self.model = model
         self.optimizer = optimizer
         self.loss = loss
+        self.batch_log_interval = max(1, int(batch_log_interval))
 
         self.device = (
             device
@@ -26,10 +28,11 @@ class Trainer:
     def train_epoch(self, loader, epoch):
         self.model.train()
         total_loss = 0.0
+        num_batches = len(loader)
 
         self.loss.set_epoch(epoch)
 
-        for local, global_context, target in loader:
+        for batch_idx, (local, global_context, target) in enumerate(loader):
             local = local.to(self.device)
             global_context = global_context.to(self.device)
             target = target.to(self.device)
@@ -49,7 +52,14 @@ class Trainer:
 
             total_loss += loss.item()
 
-        return total_loss / len(loader)
+            if batch_idx % self.batch_log_interval == 0 or batch_idx == num_batches - 1:
+                avg_loss = total_loss / (batch_idx + 1)
+                print(
+                    f"[train] Batch {batch_idx:4d}/{num_batches - 1:4d} | loss={loss.item():.6f} | avg={avg_loss:.6f}",
+                    flush=True,
+                )
+
+        return total_loss / num_batches
 
     @torch.no_grad()
     def validate(self, loader, epoch, return_stats=False):
