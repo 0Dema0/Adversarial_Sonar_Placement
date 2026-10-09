@@ -146,17 +146,26 @@ class PartsDataset(Dataset):
         self._open_mmaps()
         mm = self._mmaps
 
-        local_features = []
-        for key in self.local_features:
-            arr = mm[key][idx]
-            if key in {"cost", "neighbor_cost", "ring_cost"}:
-                arr = sanitize_cost(arr)
-            else:
-                arr = arr.astype(np.float32, copy=False)
-            if arr.ndim == 1:
-                arr = arr[:, None]
-            local_features.append(arr)
-        local_input = np.concatenate(local_features, axis=1)
+        if "local_features" in mm:
+            local_input = mm["local_features"][idx].astype(
+                np.float32,
+                copy=True,
+            )
+            local_input[:, 0] = sanitize_cost(local_input[:, 0])
+            local_input[:, 10:16] = sanitize_cost(local_input[:, 10:16])
+            local_input[:, 34:37] = sanitize_cost(local_input[:, 34:37])
+        else:
+            local_features = []
+            for key in self.local_features:
+                arr = mm[key][idx]
+                if key in {"cost", "neighbor_cost", "ring_cost"}:
+                    arr = sanitize_cost(arr)
+                else:
+                    arr = arr.astype(np.float32, copy=False)
+                if arr.ndim == 1:
+                    arr = arr[:, None]
+                local_features.append(arr)
+            local_input = np.concatenate(local_features, axis=1)
 
         global_features = []
         for key in self.global_features:
