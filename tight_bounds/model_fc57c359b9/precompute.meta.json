@@ -1,0 +1,1 @@
+{"checkpoint": "iterative_runs\\best_iter_5.pt", "model_hash": "fc57c359b9", "c_z_shape": [400, 8, 400], "const_z_shape": [400, 8]}
