@@ -248,7 +248,6 @@ class AnnealedExtremeMSELoss(nn.Module):
         # MSE only on the extreme samples
         return loss_flat[indices].mean()
 
-
 class AnnealedSymmetricTailMSELoss(nn.Module):
     def __init__(
         self,
